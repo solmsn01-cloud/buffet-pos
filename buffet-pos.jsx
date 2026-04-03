@@ -21,40 +21,29 @@ const CATEGORIAS = {
   Comidas: {
     icon: "🍔", color: "#E07A5F",
     items: [
-      { id: "c1", nombre: "Sándwich de miga", precio: 1200 },
-      { id: "c2", nombre: "Empanada",          precio: 800  },
-      { id: "c3", nombre: "Tostado",            precio: 1500 },
-      { id: "c4", nombre: "Medialunas x3",      precio: 900  },
-      { id: "c5", nombre: "Pizza por porción",  precio: 1800 },
+      { id: "c1", nombre: "Pizza",           precio: 2500 },
+      { id: "c2", nombre: "Hamburguesa",     precio: 4000 },
+      { id: "c3", nombre: "Super Pancho",    precio: 3500 },
     ],
   },
   Bebidas: {
     icon: "🥤", color: "#3D6B9E",
     items: [
-      { id: "b1", nombre: "Agua mineral",  precio: 600  },
-      { id: "b2", nombre: "Gaseosa lata",  precio: 900  },
-      { id: "b3", nombre: "Jugo natural",  precio: 1100 },
-      { id: "b4", nombre: "Cerveza",       precio: 1400 },
-      { id: "b5", nombre: "Café",          precio: 700  },
-      { id: "b6", nombre: "Mate cocido",   precio: 600  },
+      { id: "b1", nombre: "Cuba 800",        precio: 4000 },
+      { id: "b2", nombre: "Agua Grande",     precio: 2000 },
+      { id: "b3", nombre: "Agua Saborizada", precio: 2500 },
     ],
   },
   Dulces: {
     icon: "🍰", color: "#C77DBA",
     items: [
-      { id: "d1", nombre: "Alfajor",       precio: 700  },
-      { id: "d2", nombre: "Facturas x2",   precio: 1000 },
-      { id: "d3", nombre: "Torta porción", precio: 1600 },
-      { id: "d4", nombre: "Galletitas",    precio: 500  },
+      { id: "d1", nombre: "Porción de Torta", precio: 1500 },
     ],
   },
   Varios: {
     icon: "🛍️", color: "#5C9E78",
     items: [
-      { id: "v1", nombre: "Snack",        precio: 600  },
-      { id: "v2", nombre: "Chicles",      precio: 300  },
-      { id: "v3", nombre: "Servilletas",  precio: 200  },
-      { id: "v4", nombre: "Cigarrillos",  precio: 1800 },
+      { id: "v1", nombre: "Agua Caliente", precio: 500 },
     ],
   },
 };

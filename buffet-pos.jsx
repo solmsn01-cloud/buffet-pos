@@ -293,13 +293,16 @@ export default function BuffetPOS() {
             await push(ref(database, "cuentas_corrientes"), {
               nombre: ccNombre.trim(), monto: total, ventaId: nRef.key,
               fecha: new Date().toISOString(), cobrado: false,
+              lineas: [{ fecha: new Date().toISOString(), items: itemsCarrito.map(({ nombre, precio, qty }) => ({ nombre, precio, qty })), subtotal: total }],
             });
           } else {
-            // Agregar a CC existente: sumar monto y agregar ventaId
+            // Agregar a CC existente: sumar monto y acumular linea
             const cc = cuentasCorrientes.find(c => c._key === ccKeySeleccionada);
+            const lineasPrev = cc.lineas || [];
             await update(ref(database, `cuentas_corrientes/${ccKeySeleccionada}`), {
               monto: cc.monto + total,
               ultimaVenta: new Date().toISOString(),
+              lineas: [...lineasPrev, { fecha: new Date().toISOString(), items: itemsCarrito.map(({ nombre, precio, qty }) => ({ nombre, precio, qty })), subtotal: total }],
             });
           }
         }
@@ -309,10 +312,10 @@ export default function BuffetPOS() {
         setVentas((p) => [v, ...p]);
         if (medioPago === "cuenta_corriente") {
           if (ccModo === "nuevo") {
-            setCuentasCorrientes((p) => [{ _key: String(Date.now()+1), nombre: ccNombre.trim(), monto: total, fecha: new Date().toISOString(), cobrado: false, ventaId: ventaKey }, ...p]);
+            setCuentasCorrientes((p) => [{ _key: String(Date.now()+1), nombre: ccNombre.trim(), monto: total, fecha: new Date().toISOString(), cobrado: false, ventaId: ventaKey, lineas: [{ fecha: new Date().toISOString(), items: itemsCarrito.map(({ nombre, precio, qty }) => ({ nombre, precio, qty })), subtotal: total }] }, ...p]);
           } else {
             setCuentasCorrientes((p) => p.map(c => c._key === ccKeySeleccionada
-              ? { ...c, monto: c.monto + total, ultimaVenta: new Date().toISOString() }
+              ? { ...c, monto: c.monto + total, ultimaVenta: new Date().toISOString(), lineas: [...(c.lineas||[]), { fecha: new Date().toISOString(), items: itemsCarrito.map(({ nombre, precio, qty }) => ({ nombre, precio, qty })), subtotal: total }] }
               : c
             ));
           }
@@ -343,8 +346,13 @@ export default function BuffetPOS() {
         const { database, ref, push, update } = db;
         await push(ref(database, "ventas"), cobro);
         await update(ref(database, `cuentas_corrientes/${cc._key}`), { cobrado: true, medioCobro: cobreMedio });
-        if (cc.ventaId)
-          await update(ref(database, `ventas/${cc.ventaId}`), { medioCobro: cobreMedio });
+        // Actualizar medioCobro en todas las ventas CC asociadas
+        const ventasCC = ventas.filter(v => !v.esCobro && v.medio === "cuenta_corriente" && !v.medioCobro);
+        for (const v of ventasCC) {
+          if (cc.lineas?.some(l => Math.abs(new Date(l.fecha) - new Date(v.fecha)) < 5000))
+            await update(ref(database, `ventas/${v._key}`), { medioCobro: cobreMedio });
+        }
+        if (cc.ventaId) await update(ref(database, `ventas/${cc.ventaId}`), { medioCobro: cobreMedio });
       } else {
         setVentas((p) => [
           { ...cobro, _key: String(Date.now()) },
@@ -528,7 +536,20 @@ export default function BuffetPOS() {
             {ccPendientes.map((cc) => (
               <div key={cc._key} style={s.ccCard}>
                 <div style={s.ccRow}><span style={s.ccName}>{cc.nombre}</span><span style={s.ccAmt}>{fmt(cc.monto)}</span></div>
-                <div style={{ ...s.ccRow, marginBottom: 0 }}>
+                {/* Detalle de compras */}
+                {(cc.lineas||[]).map((l, i) => (
+                  <div key={i} style={{ borderTop: `1px solid ${G.border}`, paddingTop: 6, marginTop: 6 }}>
+                    <div style={{ fontSize: 11, color: G.textMuted, marginBottom: 3 }}>{fmtFecha(l.fecha)} {fmtHora(l.fecha)}</div>
+                    {l.items.map((it, j) => (
+                      <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, paddingLeft: 4 }}>
+                        <span>{it.qty > 1 ? `${it.qty}× ` : ""}{it.nombre}</span>
+                        <span style={{ color: G.textMuted }}>{fmt(it.precio * it.qty)}</span>
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", justifyContent: "flex-end", fontSize: 12, fontWeight: 700, color: G.accent, marginTop: 2 }}>{fmt(l.subtotal)}</div>
+                  </div>
+                ))}
+                <div style={{ ...s.ccRow, marginBottom: 0, marginTop: 10 }}>
                   <span style={s.ccDate}>{fmtFecha(cc.fecha)} {fmtHora(cc.fecha)}</span>
                   <button style={s.cobrarBtn} onClick={() => { setShowCobrarModal(cc._key); setCobreMedio(null); }}>Cobrar</button>
                 </div>
@@ -728,9 +749,28 @@ export default function BuffetPOS() {
               <div style={s.sheetTitle}>Cobrar cuenta corriente</div>
               {(() => {
                 const cc = cuentasCorrientes.find((c) => c._key === showCobrarModal);
+                if (!cc) return null;
                 return (<>
-                  <div style={{ textAlign: "center", marginBottom: 8, fontWeight: 700 }}>{cc?.nombre}</div>
-                  <div style={{ fontSize: 24, fontWeight: 900, color: G.accent, textAlign: "center", marginBottom: 16 }}>{fmt(cc?.monto)}</div>
+                  <div style={{ textAlign: "center", marginBottom: 12, fontWeight: 900, fontSize: 16 }}>{cc.nombre}</div>
+                  {/* Detalle de compras */}
+                  {(cc.lineas||[]).length > 0 && (
+                    <div style={{ background: G.bg, borderRadius: 10, padding: "10px 12px", marginBottom: 14, maxHeight: 200, overflowY: "auto" }}>
+                      {(cc.lineas||[]).map((l, i) => (
+                        <div key={i} style={{ marginBottom: i < cc.lineas.length-1 ? 10 : 0 }}>
+                          <div style={{ fontSize: 11, color: G.textMuted, marginBottom: 3 }}>{fmtFecha(l.fecha)} {fmtHora(l.fecha)}</div>
+                          {l.items.map((it, j) => (
+                            <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                              <span>{it.qty > 1 ? `${it.qty}× ` : ""}{it.nombre}</span>
+                              <span style={{ color: G.textMuted }}>{fmt(it.precio * it.qty)}</span>
+                            </div>
+                          ))}
+                          <div style={{ textAlign: "right", fontSize: 12, fontWeight: 700, color: G.accent, marginTop: 2 }}>{fmt(l.subtotal)}</div>
+                          {i < (cc.lineas||[]).length-1 && <div style={{ borderBottom: `1px solid ${G.border}`, marginTop: 8 }} />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 26, fontWeight: 900, color: G.accent, textAlign: "center", marginBottom: 16 }}>Total: {fmt(cc.monto)}</div>
                 </>);
               })()}
               <div style={{ ...s.payOptions, marginBottom: 20 }}>

@@ -116,6 +116,8 @@ const s = {
   cobrarBtn: { padding: "6px 14px", background: G.success, color: "#fff", border: "none", borderRadius: 8, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" },
   dateInput: { background: G.bg, border: `1px solid ${G.border}`, borderRadius: 8, color: G.text, fontFamily: "'Nunito', sans-serif", fontSize: 13, padding: "6px 10px", flex: 1 },
   exportBtn: { width: "100%", padding: "11px 16px", background: "#1A5C2A", color: "#fff", border: `1px solid #2E8B42`, borderRadius: 10, fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 },
+  ccModoBtn: (a) => ({ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${a ? G.accent : G.border}`, background: a ? G.accent + "15" : "transparent", color: a ? G.accent : G.textMuted, fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 12, cursor: "pointer", transition: "all 0.15s" }),
+  ccExistItem: (a) => ({ padding: "10px 12px", borderRadius: 8, border: `2px solid ${a ? G.accent : G.border}`, background: a ? G.accent + "12" : G.bg, marginBottom: 6, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", transition: "all 0.15s" }),
   statusDot: (ok) => ({ width: 8, height: 8, borderRadius: "50%", background: ok ? G.success : G.danger, display: "inline-block", marginRight: 5 }),
   manualBtns: { display: "flex", gap: 10, padding: "10px 16px 4px" },
   manualBtn: (color) => ({ flex: 1, padding: "10px 8px", background: "transparent", border: `2px solid ${color}`, borderRadius: 10, color: color, fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }),
@@ -219,6 +221,8 @@ export default function BuffetPOS() {
   const [cartOpen, setCartOpen] = useState(true);
   const [showCCForm, setShowCCForm] = useState(false);
   const [ccNombre, setCCNombre] = useState("");
+  const [ccModo, setCCModo] = useState("nuevo"); // "nuevo" | "existente"
+  const [ccKeySeleccionada, setCCKeySeleccionada] = useState(null);
   const [showCobrarModal, setShowCobrarModal] = useState(null);
   const [cobreMedio, setCobreMedio] = useState(null);
   const [toast, setToast]       = useState(null);
@@ -270,7 +274,10 @@ export default function BuffetPOS() {
 
   const confirmarVenta = async () => {
     if (!medioPago || !itemsCarrito.length) return;
-    if (medioPago === "cuenta_corriente" && !ccNombre.trim()) return;
+    if (medioPago === "cuenta_corriente") {
+      if (ccModo === "nuevo" && !ccNombre.trim()) return;
+      if (ccModo === "existente" && !ccKeySeleccionada) return;
+    }
     setCargando(true);
     try {
       const venta = {
@@ -279,22 +286,44 @@ export default function BuffetPOS() {
         total, medio: medioPago, cobrado: medioPago !== "cuenta_corriente", esCobro: false,
       };
       if (fbReady && db) {
-        const { database, ref, push } = db;
+        const { database, ref, push, update } = db;
         const nRef = await push(ref(database, "ventas"), venta);
-        if (medioPago === "cuenta_corriente")
-          await push(ref(database, "cuentas_corrientes"), {
-            nombre: ccNombre.trim(), monto: total, ventaId: nRef.key,
-            fecha: new Date().toISOString(), cobrado: false,
-          });
+        if (medioPago === "cuenta_corriente") {
+          if (ccModo === "nuevo") {
+            await push(ref(database, "cuentas_corrientes"), {
+              nombre: ccNombre.trim(), monto: total, ventaId: nRef.key,
+              fecha: new Date().toISOString(), cobrado: false,
+            });
+          } else {
+            // Agregar a CC existente: sumar monto y agregar ventaId
+            const cc = cuentasCorrientes.find(c => c._key === ccKeySeleccionada);
+            await update(ref(database, `cuentas_corrientes/${ccKeySeleccionada}`), {
+              monto: cc.monto + total,
+              ultimaVenta: new Date().toISOString(),
+            });
+          }
+        }
       } else {
         const ventaKey = String(Date.now());
         const v = { ...venta, _key: ventaKey };
         setVentas((p) => [v, ...p]);
-        if (medioPago === "cuenta_corriente")
-          setCuentasCorrientes((p) => [{ _key: String(Date.now()+1), nombre: ccNombre.trim(), monto: total, fecha: new Date().toISOString(), cobrado: false, ventaId: ventaKey }, ...p]);
+        if (medioPago === "cuenta_corriente") {
+          if (ccModo === "nuevo") {
+            setCuentasCorrientes((p) => [{ _key: String(Date.now()+1), nombre: ccNombre.trim(), monto: total, fecha: new Date().toISOString(), cobrado: false, ventaId: ventaKey }, ...p]);
+          } else {
+            setCuentasCorrientes((p) => p.map(c => c._key === ccKeySeleccionada
+              ? { ...c, monto: c.monto + total, ultimaVenta: new Date().toISOString() }
+              : c
+            ));
+          }
+        }
       }
-      setCarrito({}); setMedioPago(null); setShowPago(false); setCCNombre(""); setShowCCForm(false);
-      showToast(`Venta de ${fmt(total)} registrada ✓`);
+      const nombreUsado = ccModo === "existente"
+        ? cuentasCorrientes.find(c => c._key === ccKeySeleccionada)?.nombre
+        : ccNombre.trim();
+      setCarrito({}); setMedioPago(null); setShowPago(false);
+      setCCNombre(""); setShowCCForm(false); setCCModo("nuevo"); setCCKeySeleccionada(null);
+      showToast(`Venta de ${fmt(total)} registrada${nombreUsado ? ` → ${nombreUsado}` : ""} ✓`);
     } catch { showToast("Error al guardar", G.danger); }
     setCargando(false);
   };
@@ -646,16 +675,46 @@ export default function BuffetPOS() {
               <div style={s.payOptions}>
                 {MEDIOS_PAGO.map((mp) => (
                   <button key={mp.id} style={s.payOption(medioPago === mp.id)}
-                    onClick={() => { setMedioPago(mp.id); setShowCCForm(mp.id === "cuenta_corriente"); }}>
+                    onClick={() => { setMedioPago(mp.id); setShowCCForm(mp.id === "cuenta_corriente"); setCCModo("nuevo"); setCCKeySeleccionada(null); setCCNombre(""); }}>
                     <div style={{ fontSize: 22, marginBottom: 4 }}>{mp.icon}</div>
                     <div>{mp.label}</div>
                   </button>
                 ))}
               </div>
-              {showCCForm && medioPago === "cuenta_corriente" && (
-                <input style={s.ccField} placeholder="Nombre del cliente" value={ccNombre} onChange={(e) => setCCNombre(e.target.value)} />
-              )}
-              <button style={s.confirmBtn(cargando || !medioPago || (medioPago === "cuenta_corriente" && !ccNombre.trim()))} onClick={confirmarVenta}>
+
+              {showCCForm && medioPago === "cuenta_corriente" && (() => {
+                const abiertas = cuentasCorrientes.filter(c => !c.cobrado);
+                return (
+                  <div>
+                    {abiertas.length > 0 && (
+                      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                        <button style={s.ccModoBtn(ccModo === "nuevo")} onClick={() => { setCCModo("nuevo"); setCCKeySeleccionada(null); }}>＋ Nueva cuenta</button>
+                        <button style={s.ccModoBtn(ccModo === "existente")} onClick={() => { setCCModo("existente"); setCCNombre(""); }}>📋 Agregar a existente</button>
+                      </div>
+                    )}
+                    {ccModo === "nuevo" && (
+                      <input style={s.ccField} placeholder="Nombre del cliente" value={ccNombre}
+                        onChange={(e) => setCCNombre(e.target.value)} autoFocus />
+                    )}
+                    {ccModo === "existente" && (
+                      <div style={{ maxHeight: 180, overflowY: "auto", marginBottom: 10 }}>
+                        {abiertas.map(cc => (
+                          <div key={cc._key} style={s.ccExistItem(ccKeySeleccionada === cc._key)}
+                            onClick={() => setCCKeySeleccionada(cc._key)}>
+                            <span style={{ fontWeight: 700, fontSize: 14 }}>{cc.nombre}</span>
+                            <span style={{ color: G.accent, fontWeight: 800, fontSize: 13 }}>{fmt(cc.monto)} → {fmt(cc.monto + total)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <button style={s.confirmBtn(cargando || !medioPago || (medioPago === "cuenta_corriente" && (
+                (ccModo === "nuevo" && !ccNombre.trim()) ||
+                (ccModo === "existente" && !ccKeySeleccionada)
+              )))} onClick={confirmarVenta}>
                 {cargando ? "Guardando…" : "Confirmar venta"}
               </button>
             </div>

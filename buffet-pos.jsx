@@ -145,7 +145,7 @@ function exportCSV(ventas, desde, hasta, filtroEvento = "todos", eventos = []) {
     if (v.esCobro) return false;
     const f = new Date(v.fecha);
     if (f < d0 || f > d1) return false;
-    if (filtroEvento !== "todos" && v.eventoId !== filtroEvento) return false;
+    if (filtroEvento && filtroEvento !== "todos" && v.eventoId !== filtroEvento) return false;
     return true;
   });
   const manuales = filtradas.filter((v) => v.esManual);
@@ -519,6 +519,30 @@ export default function BuffetPOS() {
     setCargando(false);
   };
 
+  const handleFiltroEvento = (key) => {
+    setFiltroEvento(key);
+    if (key === "todos") {
+      setRDesde("2000-01-01");
+      setRHasta(hoy());
+      return;
+    }
+    const ventasEv = ventas.filter(v => !v.esCobro && v.eventoId === key);
+    if (ventasEv.length > 0) {
+      const fechas = ventasEv.map(v => new Date(v.fecha).getTime());
+      const primera = new Date(Math.min(...fechas));
+      const ultima  = new Date(Math.max(...fechas));
+      setRDesde(primera.toISOString().slice(0, 10));
+      setRHasta(ultima.toISOString().slice(0, 10));
+    } else {
+      const ev = eventos.find(e => e._key === key);
+      if (ev) {
+        const f = new Date(ev.fecha).toISOString().slice(0, 10);
+        setRDesde(f);
+        setRHasta(hoy());
+      }
+    }
+  };
+
   const guardarEdicionEvento = async () => {
     if (!editandoEvento || !nuevoEventoNombre.trim()) return;
     setCargando(true);
@@ -581,10 +605,10 @@ export default function BuffetPOS() {
     const d0 = new Date(rDesde + "T00:00:00"), d1 = new Date(rHasta + "T23:59:59");
     const filtradas = ventas.filter((v) => {
       if (v.esCobro) return false;
+      // Si hay filtro de evento, priorizar ese filtro; las fechas son solo referencia adicional
+      if (filtroEvento !== "todos") return v.eventoId === filtroEvento;
       const f = new Date(v.fecha);
-      if (f < d0 || f > d1) return false;
-      if (filtroEvento !== "todos" && v.eventoId !== filtroEvento) return false;
-      return true;
+      return f >= d0 && f <= d1;
     });
 
     // Ventas CC cobradas: imputar al medio de cobro real (medioCobro se guarda en la venta)
@@ -840,30 +864,7 @@ export default function BuffetPOS() {
               {eventos.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12, fontWeight: 800, color: G.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>🎪 Evento</div>
-                  <select style={{ ...s.dateInput, width: "100%" }} value={filtroEvento} onChange={e => {
-                    const key = e.target.value;
-                    setFiltroEvento(key);
-                    if (key === "todos") {
-                      setRDesde(hoy()); setRHasta(hoy());
-                    } else {
-                      // Buscar la primera venta del evento para fijar el Desde
-                      const ventasEv = ventas.filter(v => !v.esCobro && v.eventoId === key);
-                      if (ventasEv.length > 0) {
-                        const fechas = ventasEv.map(v => new Date(v.fecha));
-                        const primera = new Date(Math.min(...fechas));
-                        const ultima  = new Date(Math.max(...fechas));
-                        setRDesde(primera.toISOString().slice(0, 10));
-                        setRHasta(ultima.toISOString().slice(0, 10));
-                      } else {
-                        // Sin ventas aún: usar fecha de creación del evento
-                        const ev = eventos.find(e => e._key === key);
-                        if (ev) {
-                          const f = new Date(ev.fecha).toISOString().slice(0, 10);
-                          setRDesde(f); setRHasta(hoy());
-                        }
-                      }
-                    }
-                  }}>
+                  <select style={{ ...s.dateInput, width: "100%" }} value={filtroEvento} onChange={e => handleFiltroEvento(e.target.value)}>
                     <option value="todos">Todos los eventos</option>
                     {eventos.map(ev => <option key={ev._key} value={ev._key}>{ev.nombre} — {fmtFecha(ev.fecha)}</option>)}
                   </select>

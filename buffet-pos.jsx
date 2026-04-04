@@ -143,10 +143,11 @@ function exportCSV(ventas, desde, hasta, filtroEvento = "todos", eventos = []) {
   const d1 = new Date(hasta + "T23:59:59");
   const filtradas = ventas.filter((v) => {
     if (v.esCobro) return false;
+    if (filtroEvento && filtroEvento !== "todos") {
+      return String(v.eventoId || "") === String(filtroEvento);
+    }
     const f = new Date(v.fecha);
-    if (f < d0 || f > d1) return false;
-    if (filtroEvento && filtroEvento !== "todos" && v.eventoId !== filtroEvento) return false;
-    return true;
+    return f >= d0 && f <= d1;
   });
   const manuales = filtradas.filter((v) => v.esManual);
   const ventasNormales = filtradas.filter((v) => !v.esManual);
@@ -526,20 +527,20 @@ export default function BuffetPOS() {
       setRHasta(hoy());
       return;
     }
-    const ventasEv = ventas.filter(v => !v.esCobro && v.eventoId === key);
+    // Buscar el evento para conocer su fecha de creación
+    const ev = eventos.find(e => e._key === key);
+    if (!ev) return;
+    const fechaCreacion = new Date(ev.fecha).toISOString().slice(0, 10);
+    // Buscar ventas con eventoId coincidente O ventas sin eventoId pero dentro del rango del evento
+    const ventasEv = ventas.filter(v => !v.esCobro && (v.eventoId === key));
     if (ventasEv.length > 0) {
-      const fechas = ventasEv.map(v => new Date(v.fecha).getTime());
-      const primera = new Date(Math.min(...fechas));
-      const ultima  = new Date(Math.max(...fechas));
-      setRDesde(primera.toISOString().slice(0, 10));
-      setRHasta(ultima.toISOString().slice(0, 10));
+      const ts = ventasEv.map(v => new Date(v.fecha).getTime());
+      setRDesde(new Date(Math.min(...ts)).toISOString().slice(0, 10));
+      setRHasta(new Date(Math.max(...ts)).toISOString().slice(0, 10));
     } else {
-      const ev = eventos.find(e => e._key === key);
-      if (ev) {
-        const f = new Date(ev.fecha).toISOString().slice(0, 10);
-        setRDesde(f);
-        setRHasta(hoy());
-      }
+      // Sin ventas asociadas: usar fecha de creación del evento hasta hoy
+      setRDesde(fechaCreacion);
+      setRHasta(hoy());
     }
   };
 
@@ -605,8 +606,10 @@ export default function BuffetPOS() {
     const d0 = new Date(rDesde + "T00:00:00"), d1 = new Date(rHasta + "T23:59:59");
     const filtradas = ventas.filter((v) => {
       if (v.esCobro) return false;
-      // Si hay filtro de evento, priorizar ese filtro; las fechas son solo referencia adicional
-      if (filtroEvento !== "todos") return v.eventoId === filtroEvento;
+      if (filtroEvento !== "todos") {
+        // Mostrar ventas que tengan ese eventoId explícitamente
+        return String(v.eventoId || "") === String(filtroEvento);
+      }
       const f = new Date(v.fecha);
       return f >= d0 && f <= d1;
     });
@@ -806,7 +809,7 @@ export default function BuffetPOS() {
             )}
 
             {eventos.map(ev => {
-              const ventasEv = ventas.filter(v => !v.esCobro && v.eventoId === ev._key);
+              const ventasEv = ventas.filter(v => !v.esCobro && String(v.eventoId || "") === String(ev._key));
               const totalEv = ventasEv.reduce((a, v) => a + v.total, 0);
               return (
                 <div key={ev._key} style={{ ...s.ccCard, border: `2px solid ${ev.activo ? G.accent : G.border}` }}>

@@ -232,6 +232,12 @@ export default function BuffetPOS() {
   const [manualDetalle, setManualDetalle] = useState("");
   const [manualImporte, setManualImporte] = useState("");
   const [rHasta, setRHasta]     = useState(hoy());
+  const [eventos, setEventos]   = useState([]);
+  const [eventoActivo, setEventoActivo] = useState(null); // objeto evento o null
+  const [showEventoModal, setShowEventoModal] = useState(false);
+  const [nuevoEventoNombre, setNuevoEventoNombre] = useState("");
+  const [nuevoEventoDesc, setNuevoEventoDesc] = useState("");
+  const [filtroEvento, setFiltroEvento] = useState("todos"); // "todos" | _key del evento
 
   // Suscripción Firebase
   useEffect(() => {
@@ -247,7 +253,16 @@ export default function BuffetPOS() {
       setCuentasCorrientes(Object.entries(data).map(([k, v]) => ({ ...v, _key: k }))
         .sort((a, b) => new Date(b.fecha) - new Date(a.fecha)));
     });
-    return () => { u1(); u2(); };
+    const u3 = onValue(ref(database, "eventos"), (snap) => {
+      const data = snap.val() || {};
+      const arr = Object.entries(data).map(([k, v]) => ({ ...v, _key: k }))
+        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+      setEventos(arr);
+      // Restaurar evento activo desde Firebase
+      const activo = arr.find(e => e.activo);
+      setEventoActivo(activo || null);
+    });
+    return () => { u1(); u2(); u3(); };
   }, [db, fbReady]);
 
   const showToast = (msg, color = G.success) => {
@@ -283,7 +298,7 @@ export default function BuffetPOS() {
       const venta = {
         fecha: new Date().toISOString(),
         items: itemsCarrito.map(({ id, nombre, precio, qty, cat }) => ({ id, nombre, precio, qty, cat })),
-        total, medio: medioPago, cobrado: medioPago !== "cuenta_corriente", esCobro: false,
+        total, medio: medioPago, cobrado: medioPago !== "cuenta_corriente", esCobro: false, eventoId: eventoActivo?._key || null, eventoNombre: eventoActivo?.nombre || null,
       };
       if (fbReady && db) {
         const { database, ref, push, update } = db;
@@ -366,6 +381,47 @@ export default function BuffetPOS() {
     setCargando(false);
   };
 
+  const crearEvento = async () => {
+    if (!nuevoEventoNombre.trim()) return;
+    setCargando(true);
+    try {
+      const nuevoEvento = {
+        nombre: nuevoEventoNombre.trim(),
+        descripcion: nuevoEventoDesc.trim(),
+        fecha: new Date().toISOString(),
+        activo: true,
+      };
+      if (fbReady && db) {
+        const { database, ref, push, update } = db;
+        // Desactivar evento anterior si existía
+        if (eventoActivo) await update(ref(database, `eventos/${eventoActivo._key}`), { activo: false });
+        const nRef = await push(ref(database, "eventos"), nuevoEvento);
+        // eventoActivo se actualiza via suscripción
+      } else {
+        if (eventoActivo) setEventos(p => p.map(e => ({ ...e, activo: false })));
+        const ev = { ...nuevoEvento, _key: String(Date.now()) };
+        setEventos(p => [ev, ...p.map(e => ({ ...e, activo: false }))]);
+        setEventoActivo(ev);
+      }
+      setShowEventoModal(false);
+      setNuevoEventoNombre(""); setNuevoEventoDesc("");
+      showToast(`Evento "${nuevoEventoNombre.trim()}" activado ✓`);
+    } catch { showToast("Error al crear evento", G.danger); }
+    setCargando(false);
+  };
+
+  const cerrarEvento = async () => {
+    if (!eventoActivo) return;
+    if (fbReady && db) {
+      const { database, ref, update } = db;
+      await update(ref(database, `eventos/${eventoActivo._key}`), { activo: false });
+    } else {
+      setEventos(p => p.map(e => e._key === eventoActivo._key ? { ...e, activo: false } : e));
+      setEventoActivo(null);
+    }
+    showToast("Evento cerrado");
+  };
+
   const guardarManual = async () => {
     const importe = parseFloat(manualImporte.replace(",", "."));
     if (!manualDetalle.trim() || !importe || importe <= 0) return;
@@ -378,7 +434,7 @@ export default function BuffetPOS() {
         medio: "efectivo",
         cobrado: true,
         esCobro: false,
-        esManual: true,
+        esManual: true, eventoId: eventoActivo?._key || null, eventoNombre: eventoActivo?.nombre || null,
         tipoManual: showManual, // 'ingreso' | 'egreso'
       };
       if (fbReady && db) {
@@ -396,7 +452,13 @@ export default function BuffetPOS() {
 
   const reporte = useMemo(() => {
     const d0 = new Date(rDesde + "T00:00:00"), d1 = new Date(rHasta + "T23:59:59");
-    const filtradas = ventas.filter((v) => !v.esCobro && new Date(v.fecha) >= d0 && new Date(v.fecha) <= d1);
+    const filtradas = ventas.filter((v) => {
+      if (v.esCobro) return false;
+      const f = new Date(v.fecha);
+      if (f < d0 || f > d1) return false;
+      if (filtroEvento !== "todos" && v.eventoId !== filtroEvento) return false;
+      return true;
+    });
 
     // Ventas CC cobradas: imputar al medio de cobro real (medioCobro se guarda en la venta)
     const porMedio = { efectivo: 0, transferencia: 0, cuenta_corriente: 0 };
@@ -424,7 +486,7 @@ export default function BuffetPOS() {
       }
     }
     return { porMedio, arts: Object.values(porArticulo).sort((a, b) => b.monto - a.monto), porCategoria, totalIngresos, totalEgresos, movManuales };
-  }, [ventas, rDesde, rHasta]);
+  }, [ventas, rDesde, rHasta, filtroEvento]);
 
   const totalVendido = Object.values(reporte.porMedio).reduce((a, b) => a + b, 0);
   const saldoNeto = totalVendido + (reporte.totalIngresos || 0) - (reporte.totalEgresos || 0);
@@ -438,10 +500,22 @@ export default function BuffetPOS() {
 
         {/* HEADER */}
         <div style={s.header}>
-          <h1 style={s.headerTitle}>⚡ BUFFET POS</h1>
-          <div style={{ fontSize: 11, color: G.textMuted, display: "flex", alignItems: "center" }}>
-            <span style={s.statusDot(fbReady && !fbError)} />
-            {fbError ? "Modo local" : fbReady ? "Sincronizado" : "Conectando…"}
+          <div>
+            <h1 style={s.headerTitle}>⚡ BUFFET POS</h1>
+            {eventoActivo && (
+              <div style={{ fontSize: 11, color: G.accent, fontWeight: 700, marginTop: 1 }}>
+                🎪 {eventoActivo.nombre}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            <div style={{ fontSize: 11, color: G.textMuted, display: "flex", alignItems: "center" }}>
+              <span style={s.statusDot(fbReady && !fbError)} />
+              {fbError ? "Modo local" : fbReady ? "Sincronizado" : "Conectando…"}
+            </div>
+            <button onClick={() => setShowEventoModal(true)} style={{ fontSize: 11, background: "transparent", border: `1px solid ${G.border}`, borderRadius: 6, color: G.textMuted, padding: "2px 8px", cursor: "pointer", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>
+              {eventoActivo ? "⚙️ Evento" : "＋ Evento"}
+            </button>
           </div>
         </div>
 
@@ -451,6 +525,7 @@ export default function BuffetPOS() {
             { id: "venta",    label: "🛒 Venta" },
             { id: "cc",       label: `📋 Cta. Cte.${ccPendientes.length > 0 ? ` (${ccPendientes.length})` : ""}` },
             { id: "reportes", label: "📊 Reportes" },
+            { id: "eventos",  label: "🎪 Eventos" },
           ].map((t) => (
             <button key={t.id} style={s.tab(vista === t.id)} onClick={() => setVista(t.id)}>{t.label}</button>
           ))}
@@ -567,11 +642,65 @@ export default function BuffetPOS() {
           </div>
         )}
 
+        {/* ── EVENTOS ── */}
+        {vista === "eventos" && (
+          <div style={s.reportSection}>
+            <div style={{ ...s.reportTitle, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Eventos</span>
+              <button style={s.cobrarBtn} onClick={() => setShowEventoModal(true)}>＋ Nuevo</button>
+            </div>
+
+            {eventos.length === 0 && (
+              <div style={{ color: G.textMuted, fontSize: 14, textAlign: "center", padding: 32 }}>
+                No hay eventos registrados
+              </div>
+            )}
+
+            {eventos.map(ev => {
+              const ventasEv = ventas.filter(v => !v.esCobro && v.eventoId === ev._key);
+              const totalEv = ventasEv.reduce((a, v) => a + v.total, 0);
+              return (
+                <div key={ev._key} style={{ ...s.ccCard, border: `2px solid ${ev.activo ? G.accent : G.border}` }}>
+                  <div style={s.ccRow}>
+                    <div>
+                      <div style={{ fontWeight: 900, fontSize: 15, color: ev.activo ? G.accent : G.text }}>{ev.nombre}</div>
+                      {ev.descripcion && <div style={{ fontSize: 12, color: G.textMuted, marginTop: 2 }}>{ev.descripcion}</div>}
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 800, fontSize: 14, color: G.accent }}>{fmt(totalEv)}</div>
+                      <div style={{ fontSize: 11, color: G.textMuted }}>{ventasEv.length} ventas</div>
+                    </div>
+                  </div>
+                  <div style={{ ...s.ccRow, marginBottom: 0 }}>
+                    <span style={s.ccDate}>{fmtFecha(ev.fecha)} {fmtHora(ev.fecha)}</span>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {ev.activo
+                        ? <button style={{ ...s.cobrarBtn, background: G.danger }} onClick={cerrarEvento}>Cerrar evento</button>
+                        : <button style={{ ...s.cobrarBtn, background: G.surfaceHigh, color: G.textMuted }} onClick={async () => {
+                            if (fbReady && db) {
+                              const { database, ref, update } = db;
+                              if (eventoActivo) await update(ref(database, `eventos/${eventoActivo._key}`), { activo: false });
+                              await update(ref(database, `eventos/${ev._key}`), { activo: true });
+                            } else {
+                              setEventos(p => p.map(e => ({ ...e, activo: e._key === ev._key })));
+                              setEventoActivo(ev);
+                            }
+                            showToast(`Evento "${ev.nombre}" activado ✓`);
+                          }}>Reactivar</button>
+                      }
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* ── REPORTES ── */}
         {vista === "reportes" && (
           <div style={s.reportSection}>
 
-            {/* Filtro fechas + exportar */}
+            {/* Filtro fechas + evento + exportar */}
             <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: G.textMuted, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>📅 Período</div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
@@ -579,6 +708,15 @@ export default function BuffetPOS() {
                 <span style={{ color: G.textMuted }}>→</span>
                 <input type="date" style={s.dateInput} value={rHasta} min={rDesde} onChange={(e) => setRHasta(e.target.value)} />
               </div>
+              {eventos.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: G.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>🎪 Evento</div>
+                  <select style={{ ...s.dateInput, width: "100%" }} value={filtroEvento} onChange={e => setFiltroEvento(e.target.value)}>
+                    <option value="todos">Todos los eventos</option>
+                    {eventos.map(ev => <option key={ev._key} value={ev._key}>{ev.nombre} — {fmtFecha(ev.fecha)}</option>)}
+                  </select>
+                </div>
+              )}
               <button style={s.exportBtn} onClick={() => exportCSV(ventas, rDesde, rHasta)}>
                 <span style={{ fontSize: 16 }}>📥</span> Exportar CSV → Google Sheets
               </button>
@@ -784,6 +922,34 @@ export default function BuffetPOS() {
               <button style={s.confirmBtn(cargando || !cobreMedio)} onClick={cobrarCC}>
                 {cargando ? "Guardando…" : "Confirmar cobro"}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── MODAL EVENTO ── */}
+        {showEventoModal && (
+          <div style={s.overlay} onClick={() => setShowEventoModal(false)}>
+            <div style={s.sheet} onClick={e => e.stopPropagation()}>
+              <div style={s.sheetTitle}>🎪 Nuevo evento</div>
+              {eventoActivo && (
+                <div style={{ background: G.accent + "18", border: `1px solid ${G.accent}44`, borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 13 }}>
+                  <span style={{ fontWeight: 700, color: G.accent }}>Activo: </span>{eventoActivo.nombre}
+                  <div style={{ fontSize: 11, color: G.textMuted, marginTop: 2 }}>Al crear uno nuevo, este se cerrará automáticamente.</div>
+                </div>
+              )}
+              <input style={s.manualInput} placeholder="Nombre del evento (ej: Festival de Patín)"
+                value={nuevoEventoNombre} onChange={e => setNuevoEventoNombre(e.target.value)} autoFocus />
+              <input style={s.manualInput} placeholder="Descripción breve (ej: 6hs de competencia · 50 patinadoras)"
+                value={nuevoEventoDesc} onChange={e => setNuevoEventoDesc(e.target.value)} />
+              <button style={s.confirmBtn(cargando || !nuevoEventoNombre.trim())} onClick={crearEvento}>
+                {cargando ? "Guardando…" : "Crear y activar evento"}
+              </button>
+              {eventoActivo && (
+                <button onClick={() => { cerrarEvento(); setShowEventoModal(false); }}
+                  style={{ width: "100%", marginTop: 10, padding: 12, background: "transparent", border: `1px solid ${G.danger}`, borderRadius: 10, color: G.danger, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  Solo cerrar evento activo
+                </button>
+              )}
             </div>
           </div>
         )}

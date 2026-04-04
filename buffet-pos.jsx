@@ -859,11 +859,29 @@ export default function BuffetPOS() {
             {/* Filtro fechas + evento + exportar */}
             <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: G.textMuted, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>📅 Período</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-                <input type="date" style={s.dateInput} value={rDesde} max={rHasta} onChange={(e) => setRDesde(e.target.value)} />
-                <span style={{ color: G.textMuted }}>→</span>
-                <input type="date" style={s.dateInput} value={rHasta} min={rDesde} onChange={(e) => setRHasta(e.target.value)} />
-              </div>
+              {filtroEvento !== "todos" ? (
+                // Cuando hay evento seleccionado: mostrar rango calculado como texto
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, background: G.bg, borderRadius: 8, padding: "8px 12px", border: `1px solid ${G.border}` }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: G.accent }}>
+                    {rDesde === rHasta
+                      ? fmtFecha(rDesde)
+                      : `${fmtFecha(rDesde)} → ${fmtFecha(rHasta)}`}
+                  </span>
+                  <span style={{ fontSize: 11, color: G.textMuted, marginLeft: "auto" }}>
+                    {(() => {
+                      const ventasEv = ventas.filter(v => !v.esCobro && String(v.eventoId||"") === String(filtroEvento));
+                      return ventasEv.length > 0 ? `${ventasEv.length} ventas` : "Sin ventas";
+                    })()}
+                  </span>
+                </div>
+              ) : (
+                // Sin filtro de evento: mostrar inputs editables
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+                  <input type="date" style={s.dateInput} value={rDesde} max={rHasta} onChange={(e) => setRDesde(e.target.value)} />
+                  <span style={{ color: G.textMuted }}>→</span>
+                  <input type="date" style={s.dateInput} value={rHasta} min={rDesde} onChange={(e) => setRHasta(e.target.value)} />
+                </div>
+              )}
               {eventos.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12, fontWeight: 800, color: G.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>🎪 Evento</div>

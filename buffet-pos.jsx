@@ -132,6 +132,8 @@ const s = {
   ccModoBtn: (a) => ({ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${a ? G.accent : G.border}`, background: a ? G.accent + "15" : "transparent", color: a ? G.accent : G.textMuted, fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 12, cursor: "pointer", transition: "all 0.15s" }),
   ccExistItem: (a) => ({ padding: "10px 12px", borderRadius: 8, border: `2px solid ${a ? G.accent : G.border}`, background: a ? G.accent + "12" : G.bg, marginBottom: 6, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", transition: "all 0.15s" }),
   statusDot: (ok) => ({ width: 8, height: 8, borderRadius: "50%", background: ok ? G.success : G.danger, display: "inline-block", marginRight: 5 }),
+  histBtn: { padding: "6px 14px", background: "transparent", border: `1px solid ${G.border}`, borderRadius: 8, color: G.textMuted, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer" },
+  anularBtn: { padding: "4px 10px", background: "transparent", border: `1px solid ${G.danger}`, borderRadius: 6, color: G.danger, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 11, cursor: "pointer", flexShrink: 0 },
   manualBtns: { display: "flex", gap: 10, padding: "10px 16px 4px" },
   manualBtn: (color) => ({ flex: 1, padding: "10px 8px", background: "transparent", border: `2px solid ${color}`, borderRadius: 10, color: color, fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }),
   manualInput: { width: "100%", padding: "10px 12px", background: G.bg, border: `1px solid ${G.border}`, borderRadius: 8, color: G.text, fontFamily: "'Nunito', sans-serif", fontSize: 14, marginBottom: 10, boxSizing: "border-box" },
@@ -349,6 +351,8 @@ export default function BuffetPOS() {
   const [nuevoEventoNombre, setNuevoEventoNombre] = useState("");
   const [nuevoEventoDesc, setNuevoEventoDesc] = useState("");
   const [editandoEvento, setEditandoEvento] = useState(null); // objeto evento a editar
+  const [showHistorial, setShowHistorial] = useState(false);
+  const [confirmAnular, setConfirmAnular] = useState(null); // venta a anular
   const [filtroEvento, setFiltroEvento] = useState("todos"); // "todos" | _key del evento
 
   // Suscripción Firebase
@@ -520,6 +524,26 @@ export default function BuffetPOS() {
     setCargando(false);
   };
 
+  const anularVenta = async (venta) => {
+    setCargando(true);
+    try {
+      if (fbReady && db) {
+        const { database, ref, update } = db;
+        await update(ref(database, `ventas/${venta._key}`), { anulada: true, fechaAnulacion: new Date().toISOString() });
+        // Si era CC, restar de la cuenta corriente si sigue pendiente
+        if (venta.medio === "cuenta_corriente") {
+          const cc = cuentasCorrientes.find(c => !c.cobrado && String(c.ventaId||"") === String(venta._key));
+          if (cc) await update(ref(database, `cuentas_corrientes/${cc._key}`), { anulada: true });
+        }
+      } else {
+        setVentas(p => p.map(v => v._key === venta._key ? { ...v, anulada: true, fechaAnulacion: new Date().toISOString() } : v));
+      }
+      setConfirmAnular(null);
+      showToast("Venta anulada ✓", G.danger);
+    } catch { showToast("Error al anular", G.danger); }
+    setCargando(false);
+  };
+
   const handleFiltroEvento = (key) => {
     setFiltroEvento(key);
     if (key === "todos") {
@@ -605,11 +629,17 @@ export default function BuffetPOS() {
   const reporte = useMemo(() => {
     const d0 = new Date(rDesde + "T00:00:00"), d1 = new Date(rHasta + "T23:59:59");
     const filtradas = ventas.filter((v) => {
-      if (v.esCobro) return false;
+      if (v.esCobro || v.anulada) return false;
       if (filtroEvento !== "todos") {
-        // Mostrar ventas que tengan ese eventoId explícitamente
         return String(v.eventoId || "") === String(filtroEvento);
       }
+      const f = new Date(v.fecha);
+      return f >= d0 && f <= d1;
+    });
+    // Ventas anuladas en el mismo período (para mostrarlas con signo negativo)
+    const anuladas = ventas.filter((v) => {
+      if (v.esCobro || !v.anulada) return false;
+      if (filtroEvento !== "todos") return String(v.eventoId || "") === String(filtroEvento);
       const f = new Date(v.fecha);
       return f >= d0 && f <= d1;
     });
@@ -639,11 +669,11 @@ export default function BuffetPOS() {
         porCategoria[it.cat] = (porCategoria[it.cat] || 0) + it.precio * it.qty;
       }
     }
-    return { porMedio, arts: Object.values(porArticulo).sort((a, b) => b.monto - a.monto), porCategoria, totalIngresos, totalEgresos, movManuales };
+    return { porMedio, arts: Object.values(porArticulo).sort((a, b) => b.monto - a.monto), porCategoria, totalIngresos, totalEgresos, movManuales, anuladas };
   }, [ventas, rDesde, rHasta, filtroEvento]);
 
   const totalVendido = Object.values(reporte.porMedio).reduce((a, b) => a + b, 0);
-  const saldoNeto = totalVendido + (reporte.totalIngresos || 0) - (reporte.totalEgresos || 0);
+  const saldoNeto = totalVendido + (reporte.totalIngresos || 0) - (reporte.totalEgresos || 0) - (reporte.anuladas?.reduce((a,v)=>a+v.total,0) || 0);
   const ccPendientes = cuentasCorrientes.filter((c) => !c.cobrado);
   const ccCobradas   = cuentasCorrientes.filter((c) => c.cobrado);
 
@@ -750,6 +780,55 @@ export default function BuffetPOS() {
               <button style={s.payBtn} onClick={() => setShowPago(true)}>Cobrar {fmt(total)}</button>
             )}
           </div>
+        {/* BOTÓN HISTORIAL */}
+        {!showHistorial && (
+          <div style={{ padding: "8px 16px 4px", display: "flex", justifyContent: "flex-end" }}>
+            <button style={s.histBtn} onClick={() => setShowHistorial(true)}>🕐 Historial de ventas</button>
+          </div>
+        )}
+
+        {/* PANEL HISTORIAL */}
+        {showHistorial && (() => {
+          const recientes = ventas.filter(v => !v.esCobro).slice(0, 20);
+          return (
+            <div style={{ margin: "8px 16px", background: G.surface, border: `1px solid ${G.border}`, borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", background: G.surfaceHigh, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 800, fontSize: 14 }}>🕐 Ventas recientes</span>
+                <button onClick={() => setShowHistorial(false)} style={{ background: "transparent", border: "none", color: G.textMuted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              {recientes.length === 0 && (
+                <div style={{ padding: 16, fontSize: 13, color: G.textMuted, textAlign: "center" }}>Sin ventas registradas</div>
+              )}
+              {recientes.map(v => (
+                <div key={v._key} style={{ padding: "10px 14px", borderTop: `1px solid ${G.border}`, opacity: v.anulada ? 0.45 : 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: G.textMuted, marginBottom: 3 }}>
+                        {fmtFecha(v.fecha)} {fmtHora(v.fecha)} · {MEDIOS_PAGO.find(m => m.id === v.medio)?.label || v.medio}
+                        {v.esManual && <span style={{ color: v.tipoManual === "ingreso" ? G.success : G.danger }}> · {v.tipoManual}</span>}
+                        {v.anulada && <span style={{ color: G.danger, fontWeight: 700 }}> · ANULADA</span>}
+                      </div>
+                      {v.items.map((it, i) => (
+                        <div key={i} style={{ fontSize: 12, color: G.text }}>
+                          {it.qty > 1 ? `${it.qty}× ` : ""}{it.nombre}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: v.anulada ? G.danger : G.accent, whiteSpace: "nowrap" }}>
+                        {v.anulada ? "−" : ""}{fmt(v.total)}
+                      </span>
+                      {!v.anulada && !v.esManual && (
+                        <button style={s.anularBtn} onClick={() => setConfirmAnular(v)}>Anular</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
         </>)}
 
         {/* ── CUENTAS CORRIENTES ── */}
@@ -924,6 +1003,7 @@ export default function BuffetPOS() {
               </div>
               {reporte.totalIngresos > 0 && <div style={s.reportRow}><span style={{ color: G.success }}>＋ Ingresos manuales</span><span style={{ fontWeight: 700, color: G.success }}>{fmt(reporte.totalIngresos)}</span></div>}
               {reporte.totalEgresos > 0 && <div style={s.reportRow}><span style={{ color: G.danger }}>－ Egresos manuales</span><span style={{ fontWeight: 700, color: G.danger }}>{fmt(reporte.totalEgresos)}</span></div>}
+              {reporte.anuladas?.length > 0 && <div style={s.reportRow}><span style={{ color: G.danger }}>✕ Ventas anuladas ({reporte.anuladas.length})</span><span style={{ fontWeight: 700, color: G.danger }}>−{fmt(reporte.anuladas.reduce((a,v)=>a+v.total,0))}</span></div>}
               <div style={{ ...s.reportRow, fontWeight: 900, fontSize: 15 }}><span>Saldo neto</span><span style={{ color: saldoNeto >= 0 ? G.success : G.danger }}>{fmt(saldoNeto)}</span></div>
             </div>
 
@@ -1144,6 +1224,34 @@ export default function BuffetPOS() {
                   Solo cerrar evento activo
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ── MODAL CONFIRMAR ANULACIÓN ── */}
+        {confirmAnular && (
+          <div style={s.overlay} onClick={() => setConfirmAnular(null)}>
+            <div style={s.sheet} onClick={e => e.stopPropagation()}>
+              <div style={s.sheetTitle}>✕ Anular venta</div>
+              <div style={{ background: G.bg, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: G.textMuted, marginBottom: 6 }}>
+                  {fmtFecha(confirmAnular.fecha)} {fmtHora(confirmAnular.fecha)} · {MEDIOS_PAGO.find(m => m.id === confirmAnular.medio)?.label}
+                </div>
+                {confirmAnular.items.map((it, i) => (
+                  <div key={i} style={{ fontSize: 14, marginBottom: 2 }}>{it.qty > 1 ? `${it.qty}× ` : ""}{it.nombre}</div>
+                ))}
+                <div style={{ fontSize: 18, fontWeight: 900, color: G.danger, marginTop: 8 }}>−{fmt(confirmAnular.total)}</div>
+              </div>
+              <div style={{ fontSize: 13, color: G.textMuted, textAlign: "center", marginBottom: 16 }}>
+                La venta quedará registrada como anulada en los reportes.
+              </div>
+              <button style={{ ...s.confirmBtn(cargando), background: G.danger }} onClick={() => anularVenta(confirmAnular)}>
+                {cargando ? "Anulando…" : "Confirmar anulación"}
+              </button>
+              <button onClick={() => setConfirmAnular(null)}
+                style={{ width: "100%", marginTop: 10, padding: 12, background: "transparent", border: `1px solid ${G.border}`, borderRadius: 10, color: G.textMuted, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                Cancelar
+              </button>
             </div>
           </div>
         )}

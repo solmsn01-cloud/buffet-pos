@@ -347,6 +347,7 @@ export default function BuffetPOS() {
   const [showEventoModal, setShowEventoModal] = useState(false);
   const [nuevoEventoNombre, setNuevoEventoNombre] = useState("");
   const [nuevoEventoDesc, setNuevoEventoDesc] = useState("");
+  const [editandoEvento, setEditandoEvento] = useState(null); // objeto evento a editar
   const [filtroEvento, setFiltroEvento] = useState("todos"); // "todos" | _key del evento
 
   // Suscripción Firebase
@@ -515,6 +516,24 @@ export default function BuffetPOS() {
       setNuevoEventoNombre(""); setNuevoEventoDesc("");
       showToast(`Evento "${nuevoEventoNombre.trim()}" activado ✓`);
     } catch { showToast("Error al crear evento", G.danger); }
+    setCargando(false);
+  };
+
+  const guardarEdicionEvento = async () => {
+    if (!editandoEvento || !nuevoEventoNombre.trim()) return;
+    setCargando(true);
+    try {
+      const cambios = { nombre: nuevoEventoNombre.trim(), descripcion: nuevoEventoDesc.trim() };
+      if (fbReady && db) {
+        const { database, ref, update } = db;
+        await update(ref(database, `eventos/${editandoEvento._key}`), cambios);
+      } else {
+        setEventos(p => p.map(e => e._key === editandoEvento._key ? { ...e, ...cambios } : e));
+        if (eventoActivo?._key === editandoEvento._key) setEventoActivo(prev => ({ ...prev, ...cambios }));
+      }
+      setEditandoEvento(null); setNuevoEventoNombre(""); setNuevoEventoDesc("");
+      showToast("Evento actualizado ✓");
+    } catch { showToast("Error al guardar", G.danger); }
     setCargando(false);
   };
 
@@ -780,8 +799,12 @@ export default function BuffetPOS() {
                   <div style={{ ...s.ccRow, marginBottom: 0 }}>
                     <span style={s.ccDate}>{fmtFecha(ev.fecha)} {fmtHora(ev.fecha)}</span>
                     <div style={{ display: "flex", gap: 6 }}>
+                      <button style={{ ...s.cobrarBtn, background: G.surfaceHigh, color: G.textMuted }}
+                        onClick={() => { setEditandoEvento(ev); setNuevoEventoNombre(ev.nombre); setNuevoEventoDesc(ev.descripcion || ""); }}>
+                        ✏️ Editar
+                      </button>
                       {ev.activo
-                        ? <button style={{ ...s.cobrarBtn, background: G.danger }} onClick={cerrarEvento}>Cerrar evento</button>
+                        ? <button style={{ ...s.cobrarBtn, background: G.danger }} onClick={cerrarEvento}>Cerrar</button>
                         : <button style={{ ...s.cobrarBtn, background: G.surfaceHigh, color: G.textMuted }} onClick={async () => {
                             if (fbReady && db) {
                               const { database, ref, update } = db;
@@ -817,7 +840,30 @@ export default function BuffetPOS() {
               {eventos.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12, fontWeight: 800, color: G.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>🎪 Evento</div>
-                  <select style={{ ...s.dateInput, width: "100%" }} value={filtroEvento} onChange={e => setFiltroEvento(e.target.value)}>
+                  <select style={{ ...s.dateInput, width: "100%" }} value={filtroEvento} onChange={e => {
+                    const key = e.target.value;
+                    setFiltroEvento(key);
+                    if (key === "todos") {
+                      setRDesde(hoy()); setRHasta(hoy());
+                    } else {
+                      // Buscar la primera venta del evento para fijar el Desde
+                      const ventasEv = ventas.filter(v => !v.esCobro && v.eventoId === key);
+                      if (ventasEv.length > 0) {
+                        const fechas = ventasEv.map(v => new Date(v.fecha));
+                        const primera = new Date(Math.min(...fechas));
+                        const ultima  = new Date(Math.max(...fechas));
+                        setRDesde(primera.toISOString().slice(0, 10));
+                        setRHasta(ultima.toISOString().slice(0, 10));
+                      } else {
+                        // Sin ventas aún: usar fecha de creación del evento
+                        const ev = eventos.find(e => e._key === key);
+                        if (ev) {
+                          const f = new Date(ev.fecha).toISOString().slice(0, 10);
+                          setRDesde(f); setRHasta(hoy());
+                        }
+                      }
+                    }
+                  }}>
                     <option value="todos">Todos los eventos</option>
                     {eventos.map(ev => <option key={ev._key} value={ev._key}>{ev.nombre} — {fmtFecha(ev.fecha)}</option>)}
                   </select>
@@ -1033,6 +1079,26 @@ export default function BuffetPOS() {
         )}
 
         {/* ── MODAL EVENTO ── */}
+        {/* ── MODAL EDITAR EVENTO ── */}
+        {editandoEvento && (
+          <div style={s.overlay} onClick={() => setEditandoEvento(null)}>
+            <div style={s.sheet} onClick={e => e.stopPropagation()}>
+              <div style={s.sheetTitle}>✏️ Editar evento</div>
+              <input style={s.manualInput} placeholder="Nombre del evento"
+                value={nuevoEventoNombre} onChange={e => setNuevoEventoNombre(e.target.value)} autoFocus />
+              <input style={s.manualInput} placeholder="Descripción breve"
+                value={nuevoEventoDesc} onChange={e => setNuevoEventoDesc(e.target.value)} />
+              <button style={s.confirmBtn(cargando || !nuevoEventoNombre.trim())} onClick={guardarEdicionEvento}>
+                {cargando ? "Guardando…" : "Guardar cambios"}
+              </button>
+              <button onClick={() => setEditandoEvento(null)}
+                style={{ width: "100%", marginTop: 10, padding: 12, background: "transparent", border: `1px solid ${G.border}`, borderRadius: 10, color: G.textMuted, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
         {showEventoModal && (
           <div style={s.overlay} onClick={() => setShowEventoModal(false)}>
             <div style={s.sheet} onClick={e => e.stopPropagation()}>

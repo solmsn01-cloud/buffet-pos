@@ -192,8 +192,13 @@ function exportCSV(ventas, desde, hasta, filtroEvento = "todos", eventos = []) {
   MEDIOS_PAGO.forEach((mp) => rows3.push([mp.label, mpMap[mp.id] || 0]));
   rows3.push(["TOTAL GENERAL", filtradas.reduce((a, v) => a + v.total, 0)]);
 
+  const evObj = filtroEvento !== "todos" ? eventos.find(e => e._key === filtroEvento) : null;
+  const encabezado = evObj
+    ? `BUFFET POS\nEvento: ${evObj.nombre}\n${evObj.descripcion ? "Descripción: " + evObj.descripcion + "\n" : ""}Fecha: ${fmtFecha(evObj.fecha)}\nPeríodo de ventas: ${desde} al ${hasta}\n`
+    : `BUFFET POS\nPeríodo: ${desde} al ${hasta}\n`;
+
   const csv =
-    `BUFFET POS — Período ${desde} al ${hasta}${filtroEvento !== "todos" ? " · Evento: " + (eventos.find(e=>e._key===filtroEvento)?.nombre||"") : ""}\n\n` +
+    encabezado + "\n" +
     "DETALLE DE VENTAS\n" + toCSV(rows1) +
     "\n\nRESUMEN POR ARTÍCULO\n" + toCSV(rows2) +
     "\n\nRESUMEN POR MEDIO DE PAGO\n" + toCSV(rows3) +
@@ -692,7 +697,7 @@ export default function BuffetPOS() {
         {/* HEADER */}
         <div style={s.header}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <img src={LOGO_B64} alt="Logo" style={{ width: 42, height: 42, borderRadius: "50%", objectFit: "cover", border: `2px solid ${G.border}`, flexShrink: 0 }} />
+            <img src={LOGO_B64} alt="Logo" style={{ width: 58, height: 58, borderRadius: "50%", objectFit: "cover", border: `2px solid ${G.border}`, flexShrink: 0 }} />
             <div>
               <h1 style={s.headerTitle}>SACACHISPAS</h1>
               <div style={{ fontSize: 10, color: G.textMuted, fontWeight: 600, letterSpacing: 0.3 }}>Buffet · Punto de Venta</div>
@@ -934,6 +939,26 @@ export default function BuffetPOS() {
         {/* ── REPORTES ── */}
         {vista === "reportes" && (
           <div style={s.reportSection}>
+
+            {/* Detalle del evento seleccionado */}
+            {filtroEvento !== "todos" && (() => {
+              const ev = eventos.find(e => e._key === filtroEvento);
+              if (!ev) return null;
+              return (
+                <div style={{ background: G.accent + "12", border: `2px solid ${G.accent}44`, borderRadius: 12, padding: "12px 16px", marginBottom: 14 }}>
+                  <div style={{ fontWeight: 900, fontSize: 16, color: G.accent, marginBottom: ev.descripcion ? 4 : 0 }}>
+                    🎪 {ev.nombre}
+                  </div>
+                  {ev.descripcion && (
+                    <div style={{ fontSize: 13, color: G.text, marginBottom: 4 }}>{ev.descripcion}</div>
+                  )}
+                  <div style={{ fontSize: 12, color: G.textMuted }}>
+                    {fmtFecha(ev.fecha)} {fmtHora(ev.fecha)}
+                    {ev.activo && <span style={{ marginLeft: 8, background: G.success, color: "#fff", borderRadius: 4, padding: "1px 6px", fontSize: 11, fontWeight: 700 }}>ACTIVO</span>}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Filtro fechas + evento + exportar */}
             <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>

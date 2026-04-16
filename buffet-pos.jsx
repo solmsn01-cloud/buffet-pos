@@ -24,25 +24,25 @@ const CATEGORIAS = {
   Comidas: {
     icon: "🍔", color: "#E07A5F",
     items: [
-      { id: "c2", nombre: "Hamburguesa",     precio: 4000 },
-      { id: "c3", nombre: "Super Pancho",    precio: 3500 },
-      { id: "c1", nombre: "Pizza",           precio: 2500 },
+      { id: "c2", nombre: "Hamburguesa 🍔",     precio: 4000 },
+      { id: "c3", nombre: "Super Pancho 🌭",    precio: 3500 },
+      { id: "c1", nombre: "Pizza 🍕",           precio: 2500 },
     ],
   },
   Bebidas: {
     icon: "🥤", color: "#3D6B9E",
     items: [
-      { id: "b1", nombre: "Cuba 800",        precio: 4000 },
-      { id: "b2", nombre: "Agua Grande",     precio: 2000 },
-      { id: "b5", nombre: "Agua Chica",      precio: 1500 },
-      { id: "b3", nombre: "Agua Saborizada", precio: 2500 },
-      { id: "v1", nombre: "Agua Caliente",   precio: 500  },
+      { id: "b1", nombre: "Cuba 800 🧋",        precio: 4000 },
+      { id: "b2", nombre: "Agua Grande 🥛",     precio: 2000 },
+      { id: "b5", nombre: "Agua Chica 🫗",      precio: 1500 },
+      { id: "b3", nombre: "Agua Saborizada 🍹", precio: 2500 },
+      { id: "v1", nombre: "Agua Caliente 🍵",   precio: 500  },
     ],
   },
   Dulces: {
     icon: "🍰", color: "#C77DBA",
     items: [
-      { id: "d1", nombre: "Porción de Torta", precio: 1500 },
+      { id: "d1", nombre: "Porción de Torta 🍰", precio: 1500 },
     ],
   },
   Varios: {
@@ -52,16 +52,16 @@ const CATEGORIAS = {
 };
 
 // Lista plana de artículos en el orden visual deseado
-const ITEMS_ORDENADOS = [
-  { id: "c2", nombre: "Hamburguesa",     precio: 4000, cat: "Comidas", color: "#E07A5F" },
-  { id: "c3", nombre: "Super Pancho",    precio: 3500, cat: "Comidas", color: "#E07A5F" },
-  { id: "c1", nombre: "Pizza",           precio: 2500, cat: "Comidas", color: "#E07A5F" },
-  { id: "b1", nombre: "Cuba 800",        precio: 4000, cat: "Bebidas", color: "#3D6B9E" },
-  { id: "b2", nombre: "Agua Grande",     precio: 2000, cat: "Bebidas", color: "#3D6B9E" },
-  { id: "b5", nombre: "Agua Chica",      precio: 1500, cat: "Bebidas", color: "#3D6B9E" },
-  { id: "b3", nombre: "Agua Saborizada", precio: 2500, cat: "Bebidas", color: "#3D6B9E" },
-  { id: "v1", nombre: "Agua Caliente",   precio: 500,  cat: "Varios",  color: "#5C9E78" },
-  { id: "d1", nombre: "Porción de Torta",precio: 1500, cat: "Dulces",  color: "#C77DBA" },
+const ITEMS_DEFAULT = [
+  { id: "c2", nombre: "Hamburguesa 🍔",     precio: 4000, cat: "Comidas", color: "#E07A5F" },
+  { id: "c3", nombre: "Super Pancho 🌭",    precio: 3500, cat: "Comidas", color: "#E07A5F" },
+  { id: "c1", nombre: "Pizza 🍕",           precio: 2500, cat: "Comidas", color: "#E07A5F" },
+  { id: "b1", nombre: "Cuba 800 🧋",        precio: 4000, cat: "Bebidas", color: "#3D6B9E" },
+  { id: "b2", nombre: "Agua Grande 🥛",     precio: 2000, cat: "Bebidas", color: "#3D6B9E" },
+  { id: "b5", nombre: "Agua Chica 🫗",      precio: 1500, cat: "Bebidas", color: "#3D6B9E" },
+  { id: "b3", nombre: "Agua Saborizada 🍹", precio: 2500, cat: "Bebidas", color: "#3D6B9E" },
+  { id: "v1", nombre: "Agua Caliente 🍵",   precio: 500,  cat: "Varios",  color: "#5C9E78" },
+  { id: "d1", nombre: "Porción de Torta 🍰",precio: 1500, cat: "Dulces",  color: "#C77DBA" },
 ];
 
 const MEDIOS_PAGO = [
@@ -356,6 +356,12 @@ export default function BuffetPOS() {
   const [nuevoEventoNombre, setNuevoEventoNombre] = useState("");
   const [nuevoEventoDesc, setNuevoEventoDesc] = useState("");
   const [editandoEvento, setEditandoEvento] = useState(null); // objeto evento a editar
+  const [articulos, setArticulos] = useState(ITEMS_DEFAULT);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [editandoItem, setEditandoItem] = useState(null); // null | objeto item | "nuevo"
+  const [itemNombre, setItemNombre] = useState("");
+  const [itemPrecio, setItemPrecio] = useState("");
+  const [itemCat, setItemCat] = useState("Comidas");
   const [showHistorial, setShowHistorial] = useState(false);
   const [confirmAnular, setConfirmAnular] = useState(null); // venta a anular
   const [filtroEvento, setFiltroEvento] = useState("todos"); // "todos" | _key del evento
@@ -383,7 +389,29 @@ export default function BuffetPOS() {
       const activo = arr.find(e => e.activo);
       setEventoActivo(activo || null);
     });
-    return () => { u1(); u2(); u3(); };
+    const u4 = onValue(ref(database, "articulos"), (snap) => {
+      const data = snap.val();
+      if (data) {
+        // Convertir objeto Firebase a array manteniendo orden
+        const arr = Object.entries(data)
+          .map(([k, v]) => ({ ...v, id: k }))
+          .filter(v => !v.baja)
+          .sort((a, b) => (a.orden || 999) - (b.orden || 999));
+        setArticulos(arr.length > 0 ? arr : ITEMS_DEFAULT);
+      }
+    });
+    // Inicializar artículos en Firebase si no existen
+    onValue(ref(database, "articulos"), (snap) => {
+      if (!snap.val()) {
+        const { push, update } = db;
+        const updates = {};
+        ITEMS_DEFAULT.forEach((item, i) => {
+          updates[`articulos/${item.id}`] = { ...item, orden: i, baja: false };
+        });
+        update(ref(database), updates);
+      }
+    }, { onlyOnce: true });
+    return () => { u1(); u2(); u3(); u4(); };
   }, [db, fbReady]);
 
   const showToast = (msg, color = G.success) => {
@@ -393,7 +421,7 @@ export default function BuffetPOS() {
 
   const itemsCarrito = useMemo(() =>
     Object.entries(carrito).filter(([, q]) => q > 0).map(([id, qty]) => {
-      const it = ITEMS_ORDENADOS.find((i) => i.id === id);
+      const it = articulos.find((i) => i.id === id) || ITEMS_DEFAULT.find((i) => i.id === id);
       if (it) return { ...it, qty };
       return null;
     }).filter(Boolean), [carrito]);
@@ -547,6 +575,56 @@ export default function BuffetPOS() {
       showToast("Venta anulada ✓", G.danger);
     } catch { showToast("Error al anular", G.danger); }
     setCargando(false);
+  };
+
+  const guardarArticulo = async () => {
+    if (!itemNombre.trim() || !itemPrecio || parseFloat(itemPrecio) <= 0) return;
+    setCargando(true);
+    try {
+      const catColor = { Comidas: "#E07A5F", Bebidas: "#3D6B9E", Dulces: "#C77DBA", Varios: "#5C9E78" };
+      if (editandoItem === "nuevo") {
+        const nuevoId = "item_" + Date.now();
+        const nuevoItem = {
+          id: nuevoId, nombre: itemNombre.trim(),
+          precio: parseFloat(itemPrecio), cat: itemCat,
+          color: catColor[itemCat], orden: articulos.length, baja: false,
+        };
+        if (fbReady && db) {
+          const { database, ref, update } = db;
+          await update(ref(database), { [`articulos/${nuevoId}`]: nuevoItem });
+        } else {
+          setArticulos(p => [...p, nuevoItem]);
+        }
+        showToast(`"${nuevoItem.nombre}" agregado ✓`);
+      } else {
+        // Modificación — NO toca ventas históricas
+        const cambios = {
+          nombre: itemNombre.trim(),
+          precio: parseFloat(itemPrecio),
+          cat: itemCat,
+          color: catColor[itemCat],
+        };
+        if (fbReady && db) {
+          const { database, ref, update } = db;
+          await update(ref(database, `articulos/${editandoItem.id}`), cambios);
+        } else {
+          setArticulos(p => p.map(a => a.id === editandoItem.id ? { ...a, ...cambios } : a));
+        }
+        showToast(`"${cambios.nombre}" actualizado ✓`);
+      }
+      setEditandoItem(null); setItemNombre(""); setItemPrecio(""); setItemCat("Comidas");
+    } catch { showToast("Error al guardar", G.danger); }
+    setCargando(false);
+  };
+
+  const darBajaArticulo = async (item) => {
+    if (fbReady && db) {
+      const { database, ref, update } = db;
+      await update(ref(database, `articulos/${item.id}`), { baja: true });
+    } else {
+      setArticulos(p => p.filter(a => a.id !== item.id));
+    }
+    showToast(`"${item.nombre}" dado de baja`, G.danger);
   };
 
   const handleFiltroEvento = (key) => {
@@ -722,10 +800,11 @@ export default function BuffetPOS() {
         {/* TABS */}
         <div style={s.tabBar}>
           {[
-            { id: "venta",    label: "🛒 Venta" },
+            { id: "venta",    label: "🛒 Ventas" },
             { id: "cc",       label: `📋 Cta. Cte.${ccPendientes.length > 0 ? ` (${ccPendientes.length})` : ""}` },
             { id: "reportes", label: "📊 Reportes" },
             { id: "eventos",  label: "🎪 Eventos" },
+            { id: "admin",    label: "⚙️ Artículos" },
           ].map((t) => (
             <button key={t.id} style={s.tab(vista === t.id)} onClick={() => setVista(t.id)}>{t.label}</button>
           ))}
@@ -743,7 +822,7 @@ export default function BuffetPOS() {
           </div>
 
           <div style={{ padding: "12px 16px 8px", display: "flex", flexDirection: "column", gap: 8 }}>
-            {ITEMS_ORDENADOS.map((item) => {
+            {articulos.map((item) => {
               const qty = carrito[item.id] || 0;
               return (
                 <div key={item.id} style={s.itemCard(item.color, qty)} onClick={() => addItem(item.id)}>
@@ -1063,6 +1142,91 @@ export default function BuffetPOS() {
                 </div>
               ))}
               {!reporte.arts.length && <div style={{ padding: "12px 14px", fontSize: 13, color: G.textMuted }}>Sin ventas en este período</div>}
+            </div>
+          </div>
+        )}
+
+        {/* ── VISTA ADMIN ARTÍCULOS ── */}
+        {vista === "admin" && (
+          <div style={s.reportSection}>
+            <div style={{ ...s.reportTitle, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Artículos</span>
+              <button style={s.cobrarBtn} onClick={() => { setEditandoItem("nuevo"); setItemNombre(""); setItemPrecio(""); setItemCat("Comidas"); }}>＋ Nuevo</button>
+            </div>
+
+            {/* Lista agrupada por categoría */}
+            {Object.entries({ Comidas: "#E07A5F", Bebidas: "#3D6B9E", Dulces: "#C77DBA", Varios: "#5C9E78" }).map(([cat, color]) => {
+              const items = articulos.filter(a => a.cat === cat);
+              // También mostrar los dados de baja de esta cat
+              const bajas = fbReady ? [] : []; // solo Firebase los tiene
+              if (items.length === 0) return null;
+              return (
+                <div key={cat} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 900, color, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+                    {CATEGORIAS[cat]?.icon} {cat}
+                  </div>
+                  {items.map(item => (
+                    <div key={item.id} style={{ ...s.ccCard, marginBottom: 8, padding: "10px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 800, fontSize: 15 }}>{item.nombre}</div>
+                          <div style={{ fontSize: 13, color, fontWeight: 700, marginTop: 2 }}>{fmt(item.precio)}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button style={{ ...s.cobrarBtn, background: G.surfaceHigh, color: G.textMuted }}
+                            onClick={() => { setEditandoItem(item); setItemNombre(item.nombre); setItemPrecio(String(item.precio)); setItemCat(item.cat); }}>
+                            ✏️
+                          </button>
+                          <button style={{ ...s.cobrarBtn, background: "transparent", border: `1px solid ${G.danger}`, color: G.danger }}
+                            onClick={() => darBajaArticulo(item)}>
+                            🗑
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 12, color: G.textMuted, textAlign: "center", marginTop: 8, padding: "0 16px" }}>
+              Los cambios de precio no afectan ventas anteriores registradas.
+            </div>
+          </div>
+        )}
+
+        {/* ── MODAL EDITAR / NUEVO ARTÍCULO ── */}
+        {editandoItem && (
+          <div style={s.overlay} onClick={() => setEditandoItem(null)}>
+            <div style={s.sheet} onClick={e => e.stopPropagation()}>
+              <div style={s.sheetTitle}>{editandoItem === "nuevo" ? "＋ Nuevo artículo" : "✏️ Editar artículo"}</div>
+              <input style={s.manualInput} placeholder="Nombre del artículo"
+                value={itemNombre} onChange={e => setItemNombre(e.target.value)} autoFocus />
+              <input style={s.manualInput} placeholder="Precio" type="number" inputMode="decimal"
+                value={itemPrecio} onChange={e => setItemPrecio(e.target.value)} />
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: G.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Rubro</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {Object.entries({ Comidas: "#E07A5F", Bebidas: "#3D6B9E", Dulces: "#C77DBA", Varios: "#5C9E78" }).map(([cat, color]) => (
+                    <button key={cat} style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: `2px solid ${itemCat === cat ? color : G.border}`, background: itemCat === cat ? color + "22" : "transparent", color: itemCat === cat ? color : G.textMuted, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 11, cursor: "pointer" }}
+                      onClick={() => setItemCat(cat)}>
+                      {CATEGORIAS[cat]?.icon} {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {editandoItem !== "nuevo" && (
+                <div style={{ fontSize: 12, color: G.textMuted, textAlign: "center", marginBottom: 12 }}>
+                  El precio anterior se mantiene en el historial de ventas.
+                </div>
+              )}
+              <button style={s.confirmBtn(cargando || !itemNombre.trim() || !itemPrecio || parseFloat(itemPrecio) <= 0)}
+                onClick={guardarArticulo}>
+                {cargando ? "Guardando…" : editandoItem === "nuevo" ? "Agregar artículo" : "Guardar cambios"}
+              </button>
+              <button onClick={() => setEditandoItem(null)}
+                style={{ width: "100%", marginTop: 10, padding: 12, background: "transparent", border: `1px solid ${G.border}`, borderRadius: 10, color: G.textMuted, fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                Cancelar
+              </button>
             </div>
           </div>
         )}
